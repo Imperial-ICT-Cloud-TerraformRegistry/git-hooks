@@ -5,7 +5,7 @@ Refer to the pre-commit install documentation [link](https://github.com/antonbab
 The terraform code needs to exist in a git initialized repository.
 Create a .pre-commit-config.yaml file on the root of the repository and add the config. 
 
-# Sample config
+## Sample config
 ```
 repos:
   - repo: https://github.com/Imperial-ICT-Cloud-TerraformRegistry/git-hooks
