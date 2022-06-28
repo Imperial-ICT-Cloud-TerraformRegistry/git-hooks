@@ -1,0 +1,6 @@
+- id: add-readme
+  name: Add Readme
+  description: Add readme file after pre-commit hook
+  entry: hooks/add-readme.sh
+  language: script
+  require_serial: true
