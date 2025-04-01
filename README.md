@@ -8,8 +8,18 @@ Create a .pre-commit-config.yaml file on the root of the repository and add the 
 ## Sample config
 ```
 repos:
-  - repo: https://github.com/Imperial-ICT-Cloud-TerraformRegistry/git-hooks
-    rev: 0.0.1 # Check for latest revision from [releases] (https://github.com/Imperial-ICT-Cloud-TerraformRegistry/git-hooks/releases)
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.98.0 # Get the latest from: https://github.com/antonbabenko/pre-commit-terraform/releases
     hooks:
-      - id: add-readme # Id of the git hook
+      - id: terraform_fmt
+      - id: terraform_docs
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0 # Use the ref you want to point at
+    hooks:
+      - id: trailing-whitespace
+  - repo: https://github.com/Imperial-ICT-Cloud-TerraformRegistry/git-hooks
+    rev: 0.0.1 # Get the latest from: https://github.com/Imperial-ICT-Cloud-TerraformRegistry/git-hooks/releases
+    hooks:
+      - id: add-readme
+
 ```
