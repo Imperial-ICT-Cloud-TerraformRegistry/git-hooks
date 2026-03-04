@@ -3,21 +3,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Dual-purpose script:
 #
-#   Standalone mode  (run directly, e.g. ./add-readme.sh or via a git alias):
-#     - Ensures pre-commit is installed (installs via pip if missing).
-#     - Runs `pre-commit run --all-files` in a retry loop (up to MAX_ATTEMPTS)
-#       until all hooks pass.  This handles the common case where terraform_docs
-#       modifies README.md on the first pass, leaving it unstaged and causing a
-#       second run to be required before committing.
+#   Installer / setup mode  (run directly once per repo):
+#     - Ensures pre-commit CLI is installed (installs via pip if missing).
+#     - Writes a retry-wrapper into .git/hooks/pre-commit so that every future
+#       `git commit` automatically retries pre-commit run --all-files until all
+#       hooks pass.  Handles the common case where terraform_docs modifies
+#       README.md during the hook run, leaving it unstaged.
 #
 #   pre-commit framework mode  (called by pre-commit with PRE_COMMIT=1 set):
 #     - Checks that README.md exists and stages it.
 # ─────────────────────────────────────────────────────────────────────────────
 
 if [ -z "${PRE_COMMIT}" ]; then
-    # ── Standalone / retry-wrapper mode ──────────────────────────────────────
+    # ── Installer mode ────────────────────────────────────────────────────────
 
-    # Ensure pre-commit is installed
+    # Ensure pre-commit CLI is available
     if ! command -v pre-commit &>/dev/null; then
         echo "pre-commit not found. Installing via pip..."
         pip install pre-commit || {
@@ -27,51 +27,72 @@ if [ -z "${PRE_COMMIT}" ]; then
         echo "pre-commit installed successfully."
     fi
 
-    # Ensure pre-commit hooks are installed in the current repo
-    echo "Running pre-commit install in $(pwd)..."
-    pre-commit install || {
-        echo "ERROR: Failed to run pre-commit install. Make sure you are inside a git repository."
+    # Locate the .git directory for the current repo
+    GIT_DIR=$(git rev-parse --git-dir 2>/dev/null) || {
+        echo "ERROR: Not inside a git repository."
         exit 1
     }
 
-    MAX_ATTEMPTS=3
-    EXIT_CODE=1
+    HOOK_FILE="${GIT_DIR}/hooks/pre-commit"
+    mkdir -p "${GIT_DIR}/hooks"
 
-    # Stage everything before the first run so hooks see a clean starting state.
-    # Hooks like terraform_docs modify files and leave them unstaged; subsequent
-    # runs also re-stage after each failed attempt for the same reason.
-    echo "Staging all changes before first run..."
-    git add -A
+    # Write the retry-wrapper as the git pre-commit hook.
+    # This replaces whatever pre-commit install would have written, giving us
+    # full control over the retry loop.  The wrapper calls
+    # `pre-commit run --all-files` directly (reading .pre-commit-config.yaml),
+    # which sets PRE_COMMIT=1 for every hook child-process — so this script
+    # itself will take the framework-hook path below rather than looping again.
+    cat > "${HOOK_FILE}" << 'EOF'
+#!/bin/bash
+# Auto-retry pre-commit wrapper.
+# Installed by add-readme.sh – do not edit manually.
+# Re-run:  bash /path/to/git-hooks/hooks/add-readme.sh  to reinstall.
 
-    for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
+MAX_ATTEMPTS=5
+EXIT_CODE=1
+
+echo ""
+echo "Staging all changes before running pre-commit checks..."
+git add -A
+
+for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
+    echo ""
+    echo "──────────────────────────────────────────────────────"
+    echo " pre-commit run --all-files  (attempt ${attempt}/${MAX_ATTEMPTS})"
+    echo "──────────────────────────────────────────────────────"
+    pre-commit run --all-files
+    EXIT_CODE=$?
+
+    if [ "${EXIT_CODE}" -eq 0 ]; then
         echo ""
-        echo "──────────────────────────────────────────────────────"
-        echo " pre-commit run --all-files  (attempt ${attempt}/${MAX_ATTEMPTS})"
-        echo "──────────────────────────────────────────────────────"
-        pre-commit run --all-files
-        EXIT_CODE=$?
-
-        if [ "${EXIT_CODE}" -eq 0 ]; then
-            echo ""
-            echo "All pre-commit hooks passed on attempt ${attempt}."
-            # Stage any final modifications made by hooks on this passing run.
-            git add -A
-            break
-        fi
-
-        if [ "${attempt}" -lt "${MAX_ATTEMPTS}" ]; then
-            echo ""
-            echo "Some hooks modified files – re-staging and retrying..."
-            git add -A
-        fi
-    done
-
-    if [ "${EXIT_CODE}" -ne 0 ]; then
-        echo ""
-        echo "ERROR: pre-commit hooks still failing after ${MAX_ATTEMPTS} attempts."
-        exit 1
+        echo "All pre-commit hooks passed on attempt ${attempt}."
+        # Stage any files modified by hooks on the passing run itself.
+        git add -A
+        break
     fi
 
+    if [ "${attempt}" -lt "${MAX_ATTEMPTS}" ]; then
+        echo ""
+        echo "Some hooks modified files – re-staging and retrying..."
+        git add -A
+    fi
+done
+
+if [ "${EXIT_CODE}" -ne 0 ]; then
+    echo ""
+    echo "ERROR: pre-commit hooks still failing after ${MAX_ATTEMPTS} attempts."
+    exit 1
+fi
+
+exit 0
+EOF
+
+    chmod +x "${HOOK_FILE}"
+
+    echo ""
+    echo "✔  Retry-wrapper installed at: ${HOOK_FILE}"
+    echo "   Every 'git commit' in this repo will now automatically retry"
+    echo "   pre-commit run --all-files until all hooks pass."
     exit 0
 fi
 
